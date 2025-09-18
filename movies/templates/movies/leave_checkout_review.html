@@ -1,0 +1,18 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="container mt-5">
+  <h2>Leave a Checkout Review</h2>
+  <form method="post">
+    {% csrf_token %}
+    <div class="mb-3">
+      <label for="name" class="form-label">Your Name (optional)</label>
+      <input type="text" class="form-control" id="name" name="name" placeholder="Anonymous">
+    </div>
+    <div class="mb-3">
+      <label for="review_text" class="form-label">Your Review</label>
+      <textarea class="form-control" id="review_text" name="review_text" rows="4" required></textarea>
+    </div>
+    <button type="submit" class="btn btn-primary">Submit Review</button>
+  </form>
+</div>
+{% endblock %}

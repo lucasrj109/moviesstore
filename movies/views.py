@@ -1,5 +1,6 @@
 from django.shortcuts import render, redirect, get_object_or_404
-from .models import Movie, Review
+from .forms import CheckoutExperienceReviewForm
+from .models import Movie, Review, CheckoutExperienceReview
 from django.contrib.auth.decorators import login_required
 def index(request):
     search_term = request.GET.get('search')
@@ -58,3 +59,25 @@ def delete_review(request, id, review_id):
         user=request.user)
     review.delete()
     return redirect('movies.show', id=id)
+
+@login_required
+def leave_checkout_review(request):
+    if request.method == 'POST':
+        name = request.POST.get('name')
+        review_text = request.POST.get('review_text')
+
+        CheckoutExperienceReview.objects.create(
+            name=name if name else None,
+            review_text=review_text
+        )
+        return redirect('checkout_review_thankyou')
+
+    return render(request, 'movies/leave_checkout_review.html')
+
+def view_checkout_reviews(request):
+    reviews = CheckoutExperienceReview.objects.order_by('-created_at')
+    return render(request, 'movies/view_checkout_reviews.html', {'reviews': reviews})
+
+
+def checkout_review_thankyou(request):
+    return render(request, 'movies/checkout_review_thankyou.html')

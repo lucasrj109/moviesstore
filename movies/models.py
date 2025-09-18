@@ -18,3 +18,18 @@ class Review(models.Model):
         on_delete=models.CASCADE)
     def __str__(self):
         return str(self.id) + ' - ' + self.movie.name
+
+class CheckoutExperienceReview(models.Model):
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+    name = models.CharField(max_length=100, blank=True)
+    is_anonymous = models.BooleanField(default=False)
+    review_text = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def display_name(self):
+        if self.is_anonymous or not self.name:
+            return "Anonymous"
+        return self.name
+
+    def __str__(self):
+        return f"Review by {self.display_name()} on {self.created_at.strftime('%Y-%m-%d')}"

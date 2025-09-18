@@ -1,0 +1,28 @@
+{% extends 'base.html' %}
+
+{% block content %}
+  <div class="container mt-4">
+    <h2>Customer Reviews</h2>
+
+    <!-- Leave a Review Button -->
+    <div class="mb-3">
+      <a class="btn btn-outline-primary" href="{% url 'leave_checkout_review' %}">
+        Leave a Review
+      </a>
+    </div>
+
+    {% if reviews %}
+      <ul class="list-group">
+        {% for review in reviews %}
+          <li class="list-group-item">
+            <strong>{{ review.name|default:"Anonymous" }}</strong> <br />
+            {{ review.review_text }}
+            <div class="text-muted small">{{ review.created_at }}</div>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p>No customer reviews yet.</p>
+    {% endif %}
+  </div>
+{% endblock %}

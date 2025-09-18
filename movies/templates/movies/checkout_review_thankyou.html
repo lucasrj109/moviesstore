@@ -1,0 +1,10 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="container mt-4 text-center">
+  <h2 class="mb-3">Thank You!</h2>
+  <p>Your review has been submitted successfully.</p>
+  <a href="{% url 'view_checkout_reviews' %}" class="btn btn-outline-secondary mt-3">
+    View Other Reviews
+  </a>
+</div>
+{% endblock %}
