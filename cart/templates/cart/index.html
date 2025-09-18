@@ -35,7 +35,7 @@
     </div>
     <div class="row">
       <div class="text-end">
-        <a class="btn btn-outline-secondary mb-2"><b>Total amount to pay:</b> ${{ template_data.cart_total }}</a>
+        <a class="btn btn-outline-secondary mb-2"><b>Total sum to pay:</b> ${{ template_data.cart_total }}</a>
         {% if template_data.movies_in_cart|length > 0 %}
         <a href="{% url 'cart.purchase' %}"
           class="btn bg-dark text-white mb-2">Purchase
