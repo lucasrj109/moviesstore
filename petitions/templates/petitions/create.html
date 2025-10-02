@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container my-4">
+  <h2>Create a Movie Petition</h2>
+  <form method="post" enctype="multipart/form-data" class="mt-3">
+    {% csrf_token %}
+    {{ form.non_field_errors }}
+    <div class="mb-3">
+      <label class="form-label">Title</label>
+      {{ form.title }}
+      {{ form.title.errors }}
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Director</label>
+      {{ form.director }}
+      {{ form.director.errors }}
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Year</label>
+      {{ form.year }}
+      {{ form.year.errors }}
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Description</label>
+      {{ form.description }}
+      {{ form.description.errors }}
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Image (optional)</label>
+      {{ form.image }}
+      {{ form.image.errors }}
+    </div>
+    <button class="btn btn-primary" type="submit">Create Petition</button>
+  </form>
+</div>
+{% endblock content %}

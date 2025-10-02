@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+  <h2 class="mb-4">Movie Suggestions</h2>
+
+  {% if user.is_authenticated %}
+    <a href="{% url 'petitions:create' %}" class="btn btn-primary mb-3">
+      Create New Petition
+    </a>
+  {% else %}
+    <p class="text-muted">
+      <a href="{% url 'accounts.login' %}">Login</a> to create a petition or upvote.
+    </p>
+  {% endif %}
+
+  {% if petitions %}
+    <div class="list-group">
+      {% for petition in petitions %}
+        <div class="list-group-item mb-3 shadow-sm rounded">
+          <h4>{{ petition.title }} ({{ petition.year }})</h4>
+          <p><strong>Director:</strong> {{ petition.director }}</p>
+          <p>{{ petition.description }}</p>
+
+          {% if petition.image %}
+            <img src="{{ petition.image.url }}" alt="{{ petition.title }}" class="img-fluid mb-2" style="max-height:200px;">
+          {% endif %}
+
+          <p><strong>Votes:</strong> {{ petition.votes.count }}</p>
+
+          {% if user.is_authenticated %}
+            {% if petition.id in voted_ids %}
+              <span class="badge bg-success">You already voted</span>
+            {% else %}
+              <form method="post" action="{% url 'petitions:vote' petition.pk %}">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-sm btn-outline-primary">Upvote</button>
+              </form>
+            {% endif %}
+          {% else %}
+            <span class="text-muted">Login to upvote</span>
+          {% endif %}
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p>No petitions yet. {% if user.is_authenticated %}Be the first to <a href="{% url 'petitions:create' %}">create one</a>!{% endif %}</p>
+  {% endif %}
+</div>
+{% endblock %}
