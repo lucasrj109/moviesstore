@@ -132,3 +132,6 @@ STATICFILES_DIRS = [
 ]
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 MEDIA_URL = '/media/'
+
+MAPS_API_KEY = os.environ.get('MAPS_API_KEY', 'AIzaSyBWCrpDdhn5GnBfh5DK79jo29mv1MR7_fA')
+GEOCODING_API_KEY = os.environ.get('GEOCODING_API_KEY', 'AIzaSyCd7wSDoT1ZiMHiKZsJZ36KoPWQe2J9Ejw')

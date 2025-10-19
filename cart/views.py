@@ -3,6 +3,10 @@ from django.shortcuts import get_object_or_404, redirect
 from movies.models import Movie
 from .utils import calculate_cart_total
 from .models import Order, Item
+from django.conf import settings
+from django.views.decorators.http import require_POST 
+from django.http import JsonResponse
+import json
 from django.contrib.auth.decorators import login_required
 def index(request):
     cart_total = 0
@@ -16,7 +20,10 @@ def index(request):
     template_data['title'] = 'Cart'
     template_data['movies_in_cart'] = movies_in_cart
     template_data['cart_total'] = cart_total
-    return render(request, 'cart/index.html', {'template_data': template_data})
+    return render(request, 'cart/index.html', {
+        'template_data': template_data,
+        'GEOCODING_API_KEY': settings.GEOCODING_API_KEY,
+    })
 def add(request, id):
     get_object_or_404(Movie, id=id)
     cart = request.session.get('cart', {})
@@ -38,6 +45,18 @@ def purchase(request):
     order.user = request.user
     order.total = cart_total
     order.save()
+
+    geo = request.session.get('geo') or {}
+    order.latitude   = geo.get('lat')
+    order.longitude  = geo.get('lng')
+    order.city       = geo.get('city')
+    order.state      = geo.get('state')
+    order.country    = geo.get('country')
+    order.postal     = geo.get('postal')
+    order.region_key = geo.get('region_key')
+    order.save()
+    request.session.pop('geo', None)
+
     for movie in movies_in_cart:
         item = Item()
         item.movie = movie
@@ -51,3 +70,20 @@ def purchase(request):
     template_data['order_id'] = order.id
     return render(request, 'cart/purchase.html',
         {'template_data': template_data})
+@require_POST
+def set_location(request):
+    try:
+        payload = json.loads(request.body.decode('utf-8'))
+        request.session['geo'] = {
+            'lat': payload.get('lat'),
+            'lng': payload.get('lng'),
+            'city': payload.get('city'),
+            'state': payload.get('state'),
+            'country': payload.get('country'),
+            'postal': payload.get('postal'),
+            'region_key': payload.get('region_key'),
+        }
+        request.session.modified = True
+        return JsonResponse({'ok': True})
+    except Exception as e:
+        return JsonResponse({'ok': False, 'error': str(e)}, status=400)

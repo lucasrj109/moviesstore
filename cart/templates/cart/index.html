@@ -2,6 +2,7 @@
 {% block content %}
 {% load static %}
 {% load cart_filters %}
+
 <div class="p-3">
   <div class="container">
     <div class="row mt-3">
@@ -10,6 +11,8 @@
         <hr />
       </div>
     </div>
+
+    <!-- Cart table -->
     <div class="row m-1">
       <table class="table table-bordered table-striped text-center">
         <thead>
@@ -26,20 +29,72 @@
             <td>{{ movie.id }}</td>
             <td>{{ movie.name }}</td>
             <td>${{ movie.price }}</td>
-            <td>{{ request.session.cart|get_quantity:movie.id }}
-            </td>
+            <td>{{ request.session.cart|get_quantity:movie.id }}</td>
           </tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
-    <div class="row">
+
+    <!-- Billing / Location block (locations during checkout) -->
+    {% if template_data.movies_in_cart|length > 0 %}
+    <div class="row m-1">
+      <div class="col-lg-8 col-md-10 mx-auto">
+        <div class="card shadow-sm">
+          <div class="card-header bg-light">
+            <strong>Billing Location</strong>
+            <small class="text-muted d-block">Used to personalize “Trending” and receipts</small>
+          </div>
+          <div class="card-body">
+            <div class="row g-3">
+              <div class="col-md-6">
+                <label for="bl-city" class="form-label">City</label>
+                <input type="text" class="form-control" id="bl-city" placeholder="e.g., Atlanta">
+              </div>
+              <div class="col-md-3">
+                <label for="bl-state" class="form-label">State/Region</label>
+                <input type="text" class="form-control" id="bl-state" placeholder="e.g., GA">
+              </div>
+              <div class="col-md-3">
+                <label for="bl-postal" class="form-label">ZIP/Postal</label>
+                <input type="text" class="form-control" id="bl-postal" placeholder="e.g., 30308">
+              </div>
+              <div class="col-md-6">
+                <label for="bl-country" class="form-label">Country</label>
+                <input type="text" class="form-control" id="bl-country" placeholder="e.g., United States">
+              </div>
+
+              <!-- Hidden lat/lng captured via geolocation or geocoding -->
+              <input type="hidden" id="bl-lat">
+              <input type="hidden" id="bl-lng">
+            </div>
+
+            <div class="d-flex align-items-center gap-2 mt-3">
+              <button id="btn-use-location" class="btn btn-outline-primary" type="button">
+                Use my current location
+              </button>
+              <button id="btn-save-location" class="btn btn-outline-secondary" type="button">
+                Save location
+              </button>
+              <span id="bl-status" class="text-muted ms-2" style="font-size:0.9rem;"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Total Price -->
+    <div class="row mt-3">
       <div class="text-end">
-        <a class="btn btn-outline-secondary mb-2"><b>Total sum to pay:</b> ${{ template_data.cart_total }}</a>
-        {% if template_data.movies_in_cart|length > 0 %}
-        <a href="{% url 'cart.purchase' %}"
-          class="btn bg-dark text-white mb-2">Purchase
+        <a class="btn btn-outline-secondary mb-2">
+          <b>Total sum to pay:</b> ${{ template_data.cart_total }}
         </a>
+        {% if template_data.movies_in_cart|length > 0 %}
+        <a id="btn-purchase"
+           href="{% url 'cart.purchase' %}"
+           class="btn bg-dark text-white mb-2">Purchase</a>
+
         <a href="{% url 'cart.clear' %}">
           <button class="btn btn-danger mb-2">
             Remove all movies from Cart
@@ -50,4 +105,127 @@
     </div>
   </div>
 </div>
+
+<script>
+(function cartLocationFlow(){
+  function getCsrf() {
+    const m = document.cookie.match(/(?:^|;)\s*csrftoken=([^;]+)/);
+    return m ? decodeURIComponent(m[1]) : "";
+  }
+  function setStatus(msg, ok=true) {
+    const s = document.getElementById('bl-status');
+    if (!s) return;
+    s.textContent = msg || "";
+    s.classList.toggle('text-success', !!ok);
+    s.classList.toggle('text-danger', !ok);
+  }
+  async function postLocation(payload) {
+    const res = await fetch("/cart/set-location/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-CSRFToken": getCsrf() },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error("Failed to save location");
+    return res.json();
+  }
+  function extractRegion(components) {
+    const find = (type) => (components.find(c => c.types.includes(type)) || {}).long_name || null;
+    const city    = find("locality") || find("sublocality") || find("postal_town");
+    const state   = find("administrative_area_level_1");
+    const country = find("country");
+    const postal  = find("postal_code");
+    const regionKey = [state, country].filter(Boolean).join(", ");
+    return { city, state, country, postal, regionKey };
+  }
+  async function reverseGeocode(lat, lng) {
+    const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key={{ GEOCODING_API_KEY }}`;
+    const r = await fetch(url);
+    if (!r.ok) throw new Error("Geocoding error");
+    return r.json();
+  }
+
+  const cityEl = document.getElementById('bl-city');
+  const stateEl = document.getElementById('bl-state');
+  const countryEl = document.getElementById('bl-country');
+  const postalEl = document.getElementById('bl-postal');
+  const latEl = document.getElementById('bl-lat');
+  const lngEl = document.getElementById('bl-lng');
+
+  // Save location from current input fields
+  async function saveFromInputs() {
+    const payload = {
+      lat: latEl.value ? Number(latEl.value) : null,
+      lng: lngEl.value ? Number(lngEl.value) : null,
+      city: cityEl.value || null,
+      state: stateEl.value || null,
+      country: countryEl.value || null,
+      postal: postalEl.value || null,
+      region_key: [stateEl.value, countryEl.value].filter(Boolean).join(", ") || null,
+    };
+    await postLocation(payload);
+  }
+
+  // Bind: Use my current location
+  const btnUseLoc = document.getElementById('btn-use-location');
+  if (btnUseLoc && navigator.geolocation) {
+    btnUseLoc.addEventListener('click', function(){
+      setStatus("Detecting your location…", true);
+      navigator.geolocation.getCurrentPosition(async (pos) => {
+        try {
+          const lat = pos.coords.latitude, lng = pos.coords.longitude;
+          latEl.value = String(lat);
+          lngEl.value = String(lng);
+
+          const geo = await reverseGeocode(lat, lng);
+          const comps = (geo && geo.results && geo.results[0] && geo.results[0].address_components) || [];
+          const { city, state, country, postal, regionKey } = extractRegion(comps);
+
+          cityEl.value = city || "";
+          stateEl.value = state || "";
+          countryEl.value = country || "";
+          postalEl.value = postal || "";
+
+          await postLocation({ lat, lng, city, state, country, postal, region_key: regionKey });
+          setStatus("Location saved.", true);
+        } catch (e) {
+          console.warn(e);
+          setStatus("Could not determine location.", false);
+        }
+      }, (err) => {
+        console.warn(err);
+        setStatus("Permission denied for location.", false);
+      }, { timeout: 10000 });
+    });
+  }
+
+  // Bind: Save location (manual input)
+  const btnSave = document.getElementById('btn-save-location');
+  if (btnSave) {
+    btnSave.addEventListener('click', async function(){
+      try {
+        setStatus("Saving…", true);
+        await saveFromInputs();
+        setStatus("Location saved.", true);
+      } catch(e) {
+        console.warn(e);
+        setStatus("Failed to save location.", false);
+      }
+    });
+  }
+
+  // Save location first before purchase (like credit card type but helps for locaiton filter)
+  const btnPurchase = document.getElementById('btn-purchase');
+  if (btnPurchase) {
+    btnPurchase.addEventListener('click', async function(ev){
+      try {
+        await saveFromInputs();
+      } catch(e) {
+        console.warn("Proceeding without location:", e);
+      }
+      // Continue to purchase
+    });
+  }
+})();
+</script>
+
 {% endblock content %}

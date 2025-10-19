@@ -6,4 +6,5 @@ urlpatterns = [
     path('clear/', views.clear, name='cart.clear'),
     path('purchase/', views.purchase,
         name='cart.purchase'),
+    path('set-location/', views.set_location, name='cart.set_location'),
 ]

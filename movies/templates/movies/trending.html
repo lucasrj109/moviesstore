@@ -1,0 +1,338 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container py-3">
+  <div class="row">
+    <div class="col mx-auto mb-3">
+      <h2>Trending Near You</h2>
+      <p class="text-muted mb-0">
+        Explore the most-purchased movies by region. Search a place, click a region pin, and see the top titles.
+      </p>
+      <hr />
+    </div>
+  </div>
+
+  <!-- Controls -->
+  <div class="row gy-2 mb-3">
+    <div class="col-md-6">
+      <div class="input-group">
+        <span class="input-group-text bg-dark text-white">Search location</span>
+        <input id="place-input" type="text" class="form-control" placeholder="City, state, or country">
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="input-group">
+        <span class="input-group-text bg-dark text-white">Time window</span>
+        <select id="window-select" class="form-select">
+          <option value="7d">Last 7 days</option>
+          <option value="30d" selected>Last 30 days</option>
+          <option value="90d">Last 90 days</option>
+        </select>
+      </div>
+    </div>
+    <div class="col-md-3 text-md-end">
+      <button id="reset-btn" class="btn btn-outline-secondary">Reset view</button>
+    </div>
+  </div>
+
+  <!-- Map -->
+  <div id="map" style="height: 60vh; width: 100%; border-radius: 12px;"></div>
+
+  <!-- Bottom panels -->
+  <div class="row mt-3">
+    <div class="col-lg-6 mb-3">
+      <div class="card shadow-sm">
+        <div class="card-header bg-light"><strong>Top Movies</strong> <small class="text-muted">click to show pins</small></div>
+        <div class="card-body p-0">
+          <ul id="top-movies" class="list-group list-group-flush"></ul>
+        </div>
+      </div>
+    </div>
+    <div class="col-lg-6 mb-3">
+      <div class="card shadow-sm">
+        <div class="card-header bg-light"><strong>Top Regions</strong> <small class="text-muted">click to focus/pin</small></div>
+        <div class="card-body p-0">
+          <ul id="top-regions" class="list-group list-group-flush"></ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mt-1">
+    <small class="text-muted">
+      Pins are region centroids from checkout locations. Boundaries highlight when available (US states GeoJSON).
+    </small>
+  </div>
+</div>
+
+<script>
+let map, info;
+let markers = [];          // [{marker, data}]
+let regionsData = [];      // api data
+let movieTotals = {};      // movie -> {count, markers: [marker]}
+let statesLayerLoaded = false;
+
+function initMap() {
+  map = new google.maps.Map(document.getElementById("map"), {
+    center: { lat: 39.5, lng: -98.35 },
+    zoom: 4,
+    mapTypeControl: false,
+    streetViewControl: false,
+    fullscreenControl: false,
+  });
+  info = new google.maps.InfoWindow();
+
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition((pos) => {
+      map.setCenter({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+      map.setZoom(8);
+    });
+  }
+
+  loadStatesGeoJson();
+  setupAutocomplete();
+  setupWindowSelect();
+  document.getElementById('reset-btn').addEventListener('click', resetView);
+
+  fetchAndRender();
+}
+
+function setupAutocomplete() {
+  const input = document.getElementById('place-input');
+  const autocomplete = new google.maps.places.Autocomplete(input, {
+    types: ['(regions)'],
+    fields: ['geometry', 'address_components', 'name'],
+  });
+  autocomplete.addListener('place_changed', () => {
+    const place = autocomplete.getPlace();
+    if (!place || !place.geometry || !place.geometry.location) return;
+    map.setCenter(place.geometry.location);
+    map.setZoom(8);
+    const ac = place.address_components || [];
+    const state = getAC(ac, "administrative_area_level_1");
+    const country = getAC(ac, "country");
+    filterMarkersByRegion({ state, country });
+    if (state && statesLayerLoaded) highlightStatePolygon(state); else clearStateHighlight();
+  });
+}
+
+function setupWindowSelect() {
+  const sel = document.getElementById('window-select');
+  sel.addEventListener('change', fetchAndRender);
+}
+
+function fetchAndRender() {
+  const sel = document.getElementById('window-select');
+  const windowParam = sel ? sel.value : '30d';
+  fetch(`{% url 'movies.trending_data' %}?window=${encodeURIComponent(windowParam)}`)
+    .then(r => r.json())
+    .then(({ regions }) => {
+      regionsData = Array.isArray(regions) ? regions : [];
+      regionsData.sort((a, b) => (b.total_purchases || 0) - (a.total_purchases || 0));
+      renderMarkers();
+      buildBottomPanels();
+    })
+    .catch(err => console.error("Trending data error:", err));
+}
+
+function renderMarkers() {
+  // Clear
+  markers.forEach(obj => obj.marker.setMap(null));
+  markers = [];
+  movieTotals = {};
+
+  const bounds = new google.maps.LatLngBounds();
+
+  regionsData.forEach(r => {
+    if (r.lat == null || r.lng == null) return;
+    const pos = { lat: r.lat, lng: r.lng };
+    const marker = new google.maps.Marker({
+      position: pos,
+      map,
+      title: r.region_key || [r.state, r.country].filter(Boolean).join(', '),
+    });
+    const html = `
+      <div style="min-width:260px">
+        <div><strong>${escapeHtml(marker.title)}</strong></div>
+        <div class="mt-2"><em>Top titles (by purchases):</em></div>
+        <ol class="mb-0">
+          ${(r.top || []).map(e => `<li>${escapeHtml(e.movie)} — <b>${e.count}</b></li>`).join('')}
+        </ol>
+        <div class="mt-1 text-muted">Total purchases: ${r.total_purchases || 0}</div>
+      </div>
+    `;
+    marker.addListener('click', () => {
+      info.setContent(html);
+      info.open(map, marker);
+      if (r.state && statesLayerLoaded) highlightStatePolygon(r.state); else clearStateHighlight();
+    });
+
+    markers.push({ marker, data: r, html });
+    bounds.extend(pos);
+
+    // Accumulate per-movie totals and which markers show them
+    (r.top || []).forEach(e => {
+      const key = e.movie;
+      if (!movieTotals[key]) movieTotals[key] = { count: 0, markers: [] };
+      movieTotals[key].count += (e.count || 0);
+      movieTotals[key].markers.push(marker);
+    });
+  });
+
+  if (!bounds.isEmpty()) {
+    map.fitBounds(bounds);
+    google.maps.event.addListenerOnce(map, 'bounds_changed', () => {
+      if (map.getZoom() > 8) map.setZoom(8);
+    });
+  }
+}
+
+function buildBottomPanels() {
+  // Top Movies
+  const tm = document.getElementById('top-movies');
+  tm.innerHTML = '';
+  const moviesSorted = Object.entries(movieTotals)
+    .sort((a,b) => b[1].count - a[1].count)
+    .slice(0, 15);
+
+  if (moviesSorted.length === 0) {
+    tm.innerHTML = `<li class="list-group-item text-muted">No purchases in this window.</li>`;
+  } else {
+    moviesSorted.forEach(([name, obj]) => {
+      const li = document.createElement('li');
+      li.className = 'list-group-item d-flex justify-content-between align-items-center';
+      li.innerHTML = `<span>${escapeHtml(name)}</span><span class="badge bg-dark">${obj.count}</span>`;
+      li.addEventListener('click', () => filterMarkersByMovie(name));
+      tm.appendChild(li);
+    });
+  }
+
+  // Top Regions
+  const tr = document.getElementById('top-regions');
+  tr.innerHTML = '';
+  const topRegions = regionsData.slice(0, 15);
+  if (topRegions.length === 0) {
+    tr.innerHTML = `<li class="list-group-item text-muted">No regions to show.</li>`;
+  } else {
+    topRegions.forEach(r => {
+      const title = r.region_key || [r.state, r.country].filter(Boolean).join(', ');
+      const li = document.createElement('li');
+      li.className = 'list-group-item d-flex justify-content-between align-items-center';
+      li.innerHTML = `<span>${escapeHtml(title)}</span><span class="badge bg-dark">${r.total_purchases || 0}</span>`;
+      li.addEventListener('click', () => focusRegion(title));
+      tr.appendChild(li);
+    });
+  }
+}
+
+function focusRegion(title) {
+  // Find marker by title
+  const obj = markers.find(m => m.marker.getTitle() === title);
+  if (!obj) return;
+  markers.forEach(m => m.marker.setVisible(false));
+  obj.marker.setVisible(true);
+  map.panTo(obj.marker.getPosition());
+  map.setZoom(8);
+  info.setContent(obj.html);
+  info.open(map, obj.marker);
+  const st = obj.data.state;
+  if (st && statesLayerLoaded) highlightStatePolygon(st); else clearStateHighlight();
+}
+
+function filterMarkersByMovie(movieName) {
+  let any = false;
+  const want = (movieName || '').toLowerCase();
+  const bounds = new google.maps.LatLngBounds();
+
+  markers.forEach(obj => {
+    const inTop = (obj.data.top || []).some(e => (e.movie || '').toLowerCase() === want);
+    obj.marker.setVisible(inTop);
+    if (inTop) { bounds.extend(obj.marker.getPosition()); any = true; }
+  });
+
+  if (any) {
+    map.fitBounds(bounds);
+    google.maps.event.addListenerOnce(map, 'bounds_changed', () => {
+      if (map.getZoom() > 8) map.setZoom(8);
+    });
+  }
+}
+
+function filterMarkersByRegion({ state, country }) {
+  const wantState = (state || '').toLowerCase();
+  const wantCountry = (country || '').toLowerCase();
+  let anyVisible = false;
+  const bounds = new google.maps.LatLngBounds();
+
+  markers.forEach(obj => {
+    const r = obj.data || {};
+    const rState = (r.state || '').toLowerCase();
+    const rCountry = (r.country || '').toLowerCase();
+    let show = true;
+    if (wantCountry && rCountry !== wantCountry) show = false;
+    if (wantState && rState !== wantState) show = false;
+    obj.marker.setVisible(show);
+    if (show) { bounds.extend(obj.marker.getPosition()); anyVisible = true; }
+  });
+
+  if (anyVisible) {
+    map.fitBounds(bounds);
+    google.maps.event.addListenerOnce(map, 'bounds_changed', () => {
+      if (map.getZoom() > 8) map.setZoom(8);
+    });
+  }
+}
+
+function resetView() {
+  document.getElementById('place-input').value = '';
+  markers.forEach(obj => obj.marker.setVisible(true));
+  clearStateHighlight();
+  const bounds = new google.maps.LatLngBounds();
+  markers.forEach(obj => bounds.extend(obj.marker.getPosition()));
+  if (!bounds.isEmpty()) {
+    map.fitBounds(bounds);
+    google.maps.event.addListenerOnce(map, 'bounds_changed', () => {
+      if (map.getZoom() > 4) map.setZoom(4);
+    });
+  }
+}
+
+/* -------- Boundaries (GeoJSON) -------- */
+function loadStatesGeoJson() {
+  fetch("/static/geo/us_states.geojson", { cache: "no-cache" })
+    .then(res => { if (!res.ok) throw new Error(); return res.json(); })
+    .then(geojson => {
+      map.data.addGeoJson(geojson);
+      map.data.setStyle({ fillOpacity: 0.0, strokeColor: "#2E2E2E", strokeWeight: 1 });
+      statesLayerLoaded = true;
+    })
+    .catch(() => { statesLayerLoaded = false; });
+}
+function highlightStatePolygon(stateName) {
+  if (!statesLayerLoaded) return;
+  map.data.revertStyle();
+  map.data.setStyle(feature => {
+    const name = (feature.getProperty('name') || '').toString().toLowerCase();
+    const match = name === stateName.toLowerCase();
+    return {
+      fillOpacity: match ? 0.10 : 0.0,
+      fillColor: match ? '#6ab43e' : undefined,
+      strokeColor: match ? '#6ab43e' : '#2E2E2E',
+      strokeWeight: match ? 2 : 1
+    };
+  });
+}
+function clearStateHighlight() { if (statesLayerLoaded) map.data.revertStyle(); }
+
+/* -------------- Utils -------------- */
+function getAC(components, type) {
+  const hit = components.find(c => (c.types || []).includes(type));
+  return hit ? hit.long_name : null;
+}
+function escapeHtml(s) {
+  return String(s || '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[ch]));
+}
+</script>
+
+<!-- Load Maps with Places library for Autocomplete -->
+<script async src="https://maps.googleapis.com/maps/api/js?key={{ MAPS_API_KEY }}&libraries=places&callback=initMap"></script>
+{% endblock %}

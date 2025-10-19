@@ -5,6 +5,12 @@ from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
 from django.views.decorators.http import require_POST
 from django.db import models
+from django.conf import settings
+from django.utils import timezone
+from django.db.models import Sum
+from django.http import JsonResponse
+from datetime import timedelta
+from cart.models import Order, Item
 import json
 
 def index(request):
@@ -124,3 +130,24 @@ def rate_movie(request, id):
         'average_rating': avg,
         'your_rating': rating.score,
     })
+
+def trending_map(request):
+    return render(request, 'movies/trending.html', {
+        'MAPS_API_KEY': settings.MAPS_API_KEY  # this is the RESTRICTED Maps JS key
+    })
+
+def trending_data(request):
+    window = request.GET.get('window', '30d')
+    limit_param = request.GET.get('limit')
+    top_limit = int(limit_param) if (limit_param and limit_param.isdigit()) else 3
+
+    try:
+        if isinstance(window, str) and window.endswith('d'):
+            days = int(window[:-1])
+        else:
+            days = int(window)
+    except Exception:
+        days = 30
+
+    since = timezone.now() - timedelta(days=max(days, 1))
+    
