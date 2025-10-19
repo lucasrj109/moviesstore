@@ -33,3 +33,14 @@ class CheckoutExperienceReview(models.Model):
 
     def __str__(self):
         return f"Review by {self.display_name()} on {self.created_at.strftime('%Y-%m-%d')}"
+
+class Rating(models.Model):
+    movie = models.ForeignKey(Movie, on_delete=models.CASCADE, related_name='ratings')
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    score = models.PositiveSmallIntegerField()
+
+    class Meta:
+        unique_together = ('movie', 'user')
+
+    def __str__(self):
+        return f'{self.movie.name} - {self.user.username}: {self.score}'

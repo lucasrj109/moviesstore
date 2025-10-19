@@ -1,7 +1,12 @@
 from django.shortcuts import render, redirect, get_object_or_404
 from .forms import CheckoutExperienceReviewForm
-from .models import Movie, Review, CheckoutExperienceReview
+from .models import Movie, Review, CheckoutExperienceReview, Rating
 from django.contrib.auth.decorators import login_required
+from django.http import JsonResponse
+from django.views.decorators.http import require_POST
+from django.db import models
+import json
+
 def index(request):
     search_term = request.GET.get('search')
     if search_term:
@@ -17,12 +22,23 @@ def index(request):
 def show(request, id):
     movie = Movie.objects.get(id=id)
     reviews = Review.objects.filter(movie=movie)
-    template_data = {}
-    template_data['title'] = movie.name
-    template_data['movie'] = movie
-    template_data['reviews'] = reviews
-    return render(request, 'movies/show.html',
-                  {'template_data': template_data})
+    ratings = Rating.objects.filter(movie=movie)
+    avg_rating = round(ratings.aggregate(models.Avg('score'))['score__avg'] or 0, 1)
+
+    user_rating = None
+    if request.user.is_authenticated:
+        user_rating_obj = Rating.objects.filter(movie=movie, user=request.user).first()
+        if user_rating_obj:
+            user_rating = user_rating_obj.score
+
+    template_data = {
+        'title': movie.name,
+        'movie': movie,
+        'reviews': reviews,
+        'avg_rating': avg_rating,
+        'user_rating': user_rating,
+    }
+    return render(request, 'movies/show.html', {'template_data': template_data})
 @login_required
 def create_review(request, id):
     if request.method == 'POST' and request.POST['comment']!= '':
@@ -81,3 +97,30 @@ def view_checkout_reviews(request):
 
 def checkout_review_thankyou(request):
     return render(request, 'movies/checkout_review_thankyou.html')
+
+@login_required
+@require_POST
+def rate_movie(request, id):
+    movie = get_object_or_404(Movie, id=id)
+    try:
+        data = json.loads(request.body)
+        score = int(data.get('score'))
+    except (ValueError, TypeError, json.JSONDecodeError):
+        return JsonResponse({'error': 'Invalid data'}, status=400)
+
+    if score < 1 or score > 5:
+        return JsonResponse({'error': 'Score must be between 1 and 5'}, status=400)
+
+    rating, created = Rating.objects.update_or_create(
+        user=request.user, movie=movie, defaults={'score': score}
+    )
+
+    # Calculate updated average rating
+    all_ratings = Rating.objects.filter(movie=movie)
+    avg = round(all_ratings.aggregate(models.Avg('score'))['score__avg'] or 0, 1)
+
+    return JsonResponse({
+        'message': 'Rating saved successfully',
+        'average_rating': avg,
+        'your_rating': rating.score,
+    })

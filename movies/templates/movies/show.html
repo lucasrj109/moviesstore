@@ -30,6 +30,120 @@
             </div>
           </form>
         </p>
+                <!-- Ratings Section -->
+        <hr>
+        <div id="rating-section">
+          <h5>Customer Rating: 
+            <span id="avg-rating">{{ template_data.avg_rating }}</span>/5 stars
+          </h5>
+
+          {% if user.is_authenticated %}
+          <div class="star-rating" data-current-rating="{{ template_data.user_rating|default:0 }}">
+            {% for i in "12345" %}
+              <span class="star" data-value="{{ forloop.counter }}">&#9733;</span>
+            {% endfor %}
+          </div>
+          <button id="submit-rating" class="btn btn-sm btn-dark mt-2">Post</button>
+          {% else %}
+          <p><a href="{% url 'accounts.login' %}">Login to rate</a></p>
+          {% endif %}
+        </div>
+
+        <style>
+        .star {
+          font-size: 1.8rem;
+          color: #ccc;
+          cursor: pointer;
+          transition: color 0.2s;
+        }
+        .star.hovered {
+          color: #cfc46b;
+        }
+        .star.selected {
+          color: gold;
+        }
+        </style>
+
+        <script>
+        document.addEventListener('DOMContentLoaded', () => {
+          const stars = document.querySelectorAll('.star-rating .star');
+          const ratingContainer = document.querySelector('.star-rating');
+          const submitBtn = document.getElementById('submit-rating');
+          let selectedRating = parseInt(ratingContainer.dataset.currentRating) || 0;
+          const csrftoken = getCookie('csrftoken');
+
+          // helper function for csrf
+          function getCookie(name) {
+              let cookieValue = null;
+              if (document.cookie && document.cookie !== '') {
+                  const cookies = document.cookie.split(';');
+                  for (let i = 0; i < cookies.length; i++) {
+                      const cookie = cookies[i].trim();
+                      if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                          cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                          break;
+                      }
+                  }
+              }
+              return cookieValue;
+          }
+
+          function updateStarDisplay() {
+            stars.forEach(star => {
+              const val = parseInt(star.dataset.value);
+              star.classList.toggle('selected', val <= selectedRating);
+            });
+          }
+
+          stars.forEach(star => {
+            star.addEventListener('mouseenter', () => {
+              const hoverVal = parseInt(star.dataset.value);
+              stars.forEach(s => {
+                s.classList.toggle('hovered', parseInt(s.dataset.value) <= hoverVal);
+              });
+            });
+            star.addEventListener('mouseleave', () => {
+              stars.forEach(s => s.classList.remove('hovered'));
+            });
+            star.addEventListener('click', () => {
+              selectedRating = parseInt(star.dataset.value);
+              updateStarDisplay();
+            });
+          });
+
+          submitBtn.addEventListener('click', () => {
+            if (!selectedRating) {
+              alert('Please select a rating first!');
+              return;
+            }
+
+            fetch("{% url 'movies.rate' id=template_data.movie.id %}", {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrftoken
+              },
+              body: JSON.stringify({ score: selectedRating })
+            })
+            .then(resp => resp.json())
+            .then(data => {
+              if (data.average_rating) {
+                document.getElementById('avg-rating').textContent = data.average_rating;
+                alert('Your rating has been saved!');
+              } else {
+                alert('Error saving rating');
+              }
+            })
+            .catch(err => {
+              console.error(err);
+              alert('Error submitting rating.');
+            });
+          });
+
+          updateStarDisplay();
+        });
+        </script>
+
         <h2>Reviews</h2>
         <hr />
         <ul class="list-group">
