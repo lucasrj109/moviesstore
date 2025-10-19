@@ -133,21 +133,68 @@ def rate_movie(request, id):
 
 def trending_map(request):
     return render(request, 'movies/trending.html', {
-        'MAPS_API_KEY': settings.MAPS_API_KEY  # this is the RESTRICTED Maps JS key
+        'MAPS_API_KEY': settings.MAPS_API_KEY
     })
 
 def trending_data(request):
-    window = request.GET.get('window', '30d')
-    limit_param = request.GET.get('limit')
-    top_limit = int(limit_param) if (limit_param and limit_param.isdigit()) else 3
-
     try:
-        if isinstance(window, str) and window.endswith('d'):
-            days = int(window[:-1])
-        else:
-            days = int(window)
-    except Exception:
-        days = 30
+        window = request.GET.get('window', '30d')
+        # parse "7d", "30d", "90d" or raw int days
+        try:
+            days = int(window[:-1]) if window.endswith('d') else int(window)
+        except Exception:
+            days = 30
+        days = max(days, 1)
+        since = timezone.now() - timedelta(days=days)
 
-    since = timezone.now() - timedelta(days=max(days, 1))
-    
+        # Pull purchases joined to Order's stamped location
+        qs = (Item.objects
+              .filter(order__date__gte=since,
+                      order__region_key__isnull=False,
+                      order__latitude__isnull=False,
+                      order__longitude__isnull=False)
+              .values('order__region_key', 'order__state', 'order__country',
+                      'order__latitude', 'order__longitude',
+                      'movie__name', 'quantity'))
+
+        regions = {}
+        for row in qs:
+            rk = row['order__region_key']
+            b = regions.setdefault(rk, {
+                'region_key': rk,
+                'state': row['order__state'],
+                'country': row['order__country'],
+                '_lat_sum': 0.0, '_lng_sum': 0.0, '_n': 0,
+                'total_purchases': 0,
+                'movie_counts': {}
+            })
+            b['_lat_sum'] += float(row['order__latitude'])
+            b['_lng_sum'] += float(row['order__longitude'])
+            b['_n'] += 1
+
+            qty = int(row.get('quantity') or 0)
+            b['total_purchases'] += qty
+            name = row['movie__name']
+            b['movie_counts'][name] = b['movie_counts'].get(name, 0) + qty
+
+        payload = []
+        for rk, b in regions.items():
+            n = max(b['_n'], 1)
+            top = sorted(
+                [{'movie': m, 'count': c} for m, c in b['movie_counts'].items()],
+                key=lambda x: (-x['count'], x['movie'])
+            )[:3]
+            payload.append({
+                'region_key': rk,
+                'state': b['state'],
+                'country': b['country'],
+                'lat': round(b['_lat_sum'] / n, 6),
+                'lng': round(b['_lng_sum'] / n, 6),
+                'total_purchases': b['total_purchases'],
+                'top': top
+            })
+
+        payload.sort(key=lambda r: (-r['total_purchases'], r['region_key']))
+        return JsonResponse({'regions': payload})
+    except Exception as e:
+        return JsonResponse({'regions': []})
