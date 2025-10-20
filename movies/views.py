@@ -26,25 +26,27 @@ def index(request):
                   {'template_data': template_data})
 
 def show(request, id):
-    movie = Movie.objects.get(id=id)
+    movie = get_object_or_404(Movie, id=id)
     reviews = Review.objects.filter(movie=movie)
     ratings = Rating.objects.filter(movie=movie)
-    avg_rating = round(ratings.aggregate(models.Avg('score'))['score__avg'] or 0, 1)
+
+    avg_rating = ratings.aggregate(avg=models.Avg('score'))['avg']
+    avg_rating = round(avg_rating or 0, 1)
 
     user_rating = None
     if request.user.is_authenticated:
-        user_rating_obj = Rating.objects.filter(movie=movie, user=request.user).first()
-        if user_rating_obj:
-            user_rating = user_rating_obj.score
+        user_rating_obj = ratings.filter(user=request.user).first()
+        user_rating = user_rating_obj.score if user_rating_obj else None
 
     template_data = {
         'title': movie.name,
         'movie': movie,
         'reviews': reviews,
-        'avg_rating': avg_rating,
+        'avg_rating': f"{avg_rating:.1f}",
         'user_rating': user_rating,
     }
     return render(request, 'movies/show.html', {'template_data': template_data})
+
 @login_required
 def create_review(request, id):
     if request.method == 'POST' and request.POST['comment']!= '':
@@ -114,20 +116,24 @@ def rate_movie(request, id):
     except (ValueError, TypeError, json.JSONDecodeError):
         return JsonResponse({'error': 'Invalid data'}, status=400)
 
-    if score < 1 or score > 5:
+    if not (1 <= score <= 5):
         return JsonResponse({'error': 'Score must be between 1 and 5'}, status=400)
 
-    rating, created = Rating.objects.update_or_create(
-        user=request.user, movie=movie, defaults={'score': score}
+    rating, _ = Rating.objects.update_or_create(
+        user=request.user,
+        movie=movie,
+        defaults={'score': score}
     )
 
-    # Calculate updated average rating
-    all_ratings = Rating.objects.filter(movie=movie)
-    avg = round(all_ratings.aggregate(models.Avg('score'))['score__avg'] or 0, 1)
+    avg_rating = (
+        Rating.objects.filter(movie=movie)
+        .aggregate(avg=models.Avg('score'))['avg']
+    )
+    avg_rating = round(avg_rating or 0, 1)
 
     return JsonResponse({
         'message': 'Rating saved successfully',
-        'average_rating': avg,
+        'average_rating': f"{avg_rating:.1f}",
         'your_rating': rating.score,
     })
 

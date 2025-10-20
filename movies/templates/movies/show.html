@@ -1,204 +1,129 @@
-{% extends 'base.html' %}
-{% block content %}
-{% load static %}
-<div class="p-3">
-  <div class="container">
-    <div class="row mt-3">
-      <div class="col-md-6 mx-auto mb-3">
-        <h2>{{ template_data.movie.name }}</h2>
-        <hr />
-        <p><b>Description:</b> {{template_data.movie.description }}</p>
-        <p><b>Price:</b> ${{template_data.movie.price }}</p>
-        <p class="card-text">
-          <form method="post"
-            action="{% url 'cart.add' id=template_data.movie.id %}">
-            <div class="row">
-              {% csrf_token %}
-              <div class="col-auto">
-                <div class="input-group col-auto">
-                  <div class="input-group-text">Quantity
-                    </div>
-                  <input type="number" min="1" max="10"
-                    class="form-control quantity-input"
-                    name="quantity" value="1">
-                </div>
-              </div>
-              <div class="col-auto">
-                <button class="btn bg-dark text-white"
-                  type="submit">Add to cart</button>
-              </div>
-            </div>
-          </form>
-        </p>
-                <!-- Ratings Section -->
-        <hr>
-        <div id="rating-section">
-          <h5>Customer Rating: 
-            <span id="avg-rating">{{ template_data.avg_rating }}</span>/5 stars
-          </h5>
+<hr>
+<div id="rating-section">
+  <h5 class="mb-2">
+    <span class="fw-semibold">Customer Rating:</span>
+    <span id="avg-rating-display" class="text-warning fw-bold">
+      ★ {{ template_data.avg_rating }}
+    </span>
+    <span class="text-muted">/ 5.0</span>
+  </h5>
 
-          {% if user.is_authenticated %}
-          <div class="star-rating" data-current-rating="{{ template_data.user_rating|default:0 }}">
-            {% for i in "12345" %}
-              <span class="star" data-value="{{ forloop.counter }}">&#9733;</span>
-            {% endfor %}
-          </div>
-          <button id="submit-rating" class="btn btn-sm btn-dark mt-2">Post</button>
-          {% else %}
-          <p><a href="{% url 'accounts.login' %}">Login to rate</a></p>
-          {% endif %}
-        </div>
-
-        <style>
-        .star {
-          font-size: 1.8rem;
-          color: #ccc;
-          cursor: pointer;
-          transition: color 0.2s;
-        }
-        .star.hovered {
-          color: #cfc46b;
-        }
-        .star.selected {
-          color: gold;
-        }
-        </style>
-
-        <script>
-        document.addEventListener('DOMContentLoaded', () => {
-          const stars = document.querySelectorAll('.star-rating .star');
-          const ratingContainer = document.querySelector('.star-rating');
-          const submitBtn = document.getElementById('submit-rating');
-          let selectedRating = parseInt(ratingContainer.dataset.currentRating) || 0;
-          const csrftoken = getCookie('csrftoken');
-
-          // helper function for csrf
-          function getCookie(name) {
-              let cookieValue = null;
-              if (document.cookie && document.cookie !== '') {
-                  const cookies = document.cookie.split(';');
-                  for (let i = 0; i < cookies.length; i++) {
-                      const cookie = cookies[i].trim();
-                      if (cookie.substring(0, name.length + 1) === (name + '=')) {
-                          cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
-                          break;
-                      }
-                  }
-              }
-              return cookieValue;
-          }
-
-          function updateStarDisplay() {
-            stars.forEach(star => {
-              const val = parseInt(star.dataset.value);
-              star.classList.toggle('selected', val <= selectedRating);
-            });
-          }
-
-          stars.forEach(star => {
-            star.addEventListener('mouseenter', () => {
-              const hoverVal = parseInt(star.dataset.value);
-              stars.forEach(s => {
-                s.classList.toggle('hovered', parseInt(s.dataset.value) <= hoverVal);
-              });
-            });
-            star.addEventListener('mouseleave', () => {
-              stars.forEach(s => s.classList.remove('hovered'));
-            });
-            star.addEventListener('click', () => {
-              selectedRating = parseInt(star.dataset.value);
-              updateStarDisplay();
-            });
-          });
-
-          submitBtn.addEventListener('click', () => {
-            if (!selectedRating) {
-              alert('Please select a rating first!');
-              return;
-            }
-
-            fetch("{% url 'movies.rate' id=template_data.movie.id %}", {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': csrftoken
-              },
-              body: JSON.stringify({ score: selectedRating })
-            })
-            .then(resp => resp.json())
-            .then(data => {
-              if (data.average_rating) {
-                document.getElementById('avg-rating').textContent = data.average_rating;
-                alert('Your rating has been saved!');
-              } else {
-                alert('Error saving rating');
-              }
-            })
-            .catch(err => {
-              console.error(err);
-              alert('Error submitting rating.');
-            });
-          });
-
-          updateStarDisplay();
-        });
-        </script>
-
-        <h2>Reviews</h2>
-        <hr />
-        <ul class="list-group">
-          {% for review in template_data.reviews %}
-          <li class="list-group-item pb-3 pt-3">
-            <h5 class="card-title">
-              Review by {{ review.user.username }}
-            </h5>
-            <h6 class="card-subtitle mb-2 text-muted">
-              {{ review.date }}
-            </h6>
-            <p class="card-text">{{ review.comment }}</p>
-            {% if user.is_authenticated and user == review.user %}
-            <a class="btn btn-primary" href="{% url 'movies.edit_review' id=template_data.movie.id review_id=review.id %}">Edit
-            </a>
-            <a class="btn btn-danger" href="{% url 'movies.delete_review' id=template_data.movie.id review_id=review.id %}">Delete
-            </a>
-            {% endif %}
-          </li>
-          {% endfor %}
-        </ul>
-        {% if user.is_authenticated %}
-        <div class="container mt-4">
-          <div class="row justify-content-center">
-            <div class="col-12">
-              <div class="card shadow p-3 mb-4 rounded">
-                <div class="card-body">
-                  <b class="text-start">Create a review
-                    </b><br /><br />
-                  <form method="POST" action="{% url 'movies.create_review' id=template_data.movie.id %}">
-                    {% csrf_token %}
-                    <p>
-                      <label for="comment">Comment:</label>
-                      <textarea name="comment" required
-                      class="form-control"
-                      id="comment"></textarea>
-                    </p>
-                    <div class="text-center">
-                      <button type="submit"
-                        class="btn bg-dark text-white">Add Review
-                      </button>
-                    </div>
-                  </form>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-        {% endif %}
-      </div>
-      <div class="col-md-6 mx-auto mb-3 text-center">
-        <img src="{{ template_data.movie.image.url }}"
-          class="rounded img-card-400" />
-      </div>
-    </div>
+  {% if user.is_authenticated %}
+  <div class="star-rating d-inline-block" data-current-rating="{{ template_data.user_rating|default:0 }}">
+    {% for i in "12345" %}
+      <span class="star" data-value="{{ forloop.counter }}">&#9733;</span>
+    {% endfor %}
   </div>
+  <button id="submit-rating" class="btn btn-sm btn-dark ms-2">Submit</button>
+  <div id="rating-feedback" class="text-success mt-2" style="display:none;">Your rating has been saved!</div>
+  {% else %}
+  <p><a href="{% url 'accounts.login' %}">Login to rate</a></p>
+  {% endif %}
 </div>
-{% endblock content %}
+
+<style>
+  .star {
+    font-size: 1.9rem;
+    color: #ccc;
+    cursor: pointer;
+    transition: color 0.2s ease-in-out, transform 0.1s ease-in-out;
+  }
+  .star.hovered {
+    color: #d4c66f;
+    transform: scale(1.15);
+  }
+  .star.selected {
+    color: gold;
+  }
+  #avg-rating-display {
+    font-size: 1.4rem;
+  }
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const stars = document.querySelectorAll('.star-rating .star');
+  const ratingContainer = document.querySelector('.star-rating');
+  const submitBtn = document.getElementById('submit-rating');
+  const feedbackEl = document.getElementById('rating-feedback');
+  const avgDisplay = document.getElementById('avg-rating-display');
+  let selectedRating = parseInt(ratingContainer?.dataset.currentRating) || 0;
+  const csrftoken = getCookie('csrftoken');
+
+  function getCookie(name) {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+      const cookies = document.cookie.split(';');
+      for (let i = 0; i < cookies.length; i++) {
+        const cookie = cookies[i].trim();
+        if (cookie.substring(0, name.length + 1) === (name + '=')) {
+          cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+          break;
+        }
+      }
+    }
+    return cookieValue;
+  }
+
+  function updateStarDisplay() {
+    stars.forEach(star => {
+      const val = parseInt(star.dataset.value);
+      star.classList.toggle('selected', val <= selectedRating);
+    });
+  }
+
+  stars.forEach(star => {
+    star.addEventListener('mouseenter', () => {
+      const hoverVal = parseInt(star.dataset.value);
+      stars.forEach(s => s.classList.toggle('hovered', parseInt(s.dataset.value) <= hoverVal));
+    });
+    star.addEventListener('mouseleave', () => {
+      stars.forEach(s => s.classList.remove('hovered'));
+    });
+    star.addEventListener('click', () => {
+      selectedRating = parseInt(star.dataset.value);
+      updateStarDisplay();
+    });
+  });
+
+  if (submitBtn) {
+    submitBtn.addEventListener('click', () => {
+      if (!selectedRating) {
+        feedbackEl.textContent = 'Please select a rating first.';
+        feedbackEl.style.color = 'red';
+        feedbackEl.style.display = 'block';
+        return;
+      }
+
+      fetch("{% url 'movies.rate' id=template_data.movie.id %}", {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': csrftoken
+        },
+        body: JSON.stringify({ score: selectedRating })
+      })
+      .then(resp => resp.json())
+      .then(data => {
+        if (data.average_rating) {
+          avgDisplay.textContent = '★ ' + data.average_rating;
+          feedbackEl.textContent = 'Your rating has been saved!';
+          feedbackEl.style.color = 'green';
+          feedbackEl.style.display = 'block';
+        } else if (data.error) {
+          feedbackEl.textContent = data.error;
+          feedbackEl.style.color = 'red';
+          feedbackEl.style.display = 'block';
+        }
+      })
+      .catch(() => {
+        feedbackEl.textContent = 'Error submitting rating.';
+        feedbackEl.style.color = 'red';
+        feedbackEl.style.display = 'block';
+      });
+    });
+  }
+
+  updateStarDisplay();
+});
+</script>
