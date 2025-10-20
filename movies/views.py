@@ -137,9 +137,14 @@ def trending_map(request):
     })
 
 def trending_data(request):
+    """
+    Returns JSON data of trending movies by region for the Google Map.
+    Each region includes coordinates, total purchases, and top 3 movies 
+    (with id, name, count, and image URL).
+    """
     try:
+        # ---- 1. Parse and validate time window ----
         window = request.GET.get('window', '30d')
-        # parse "7d", "30d", "90d" or raw int days
         try:
             days = int(window[:-1]) if window.endswith('d') else int(window)
         except Exception:
@@ -147,54 +152,100 @@ def trending_data(request):
         days = max(days, 1)
         since = timezone.now() - timedelta(days=days)
 
-        # Pull purchases joined to Order's stamped location
-        qs = (Item.objects
-              .filter(order__date__gte=since,
-                      order__region_key__isnull=False,
-                      order__latitude__isnull=False,
-                      order__longitude__isnull=False)
-              .values('order__region_key', 'order__state', 'order__country',
-                      'order__latitude', 'order__longitude',
-                      'movie__name', 'quantity'))
+        # ---- 2. Query Item objects (sales data) ----
+        # We only include orders with valid region + coordinates
+        qs = (
+            Item.objects
+            .filter(
+                order__date__gte=since,
+                order__region_key__isnull=False,
+                order__latitude__isnull=False,
+                order__longitude__isnull=False,
+            )
+            .values(
+                'order__region_key',
+                'order__state',
+                'order__country',
+                'order__latitude',
+                'order__longitude',
+                'movie__id',
+                'movie__name',
+                'movie__image',   # include movie image field
+                'quantity',
+            )
+        )
 
+        # ---- 3. Group purchases by region ----
         regions = {}
         for row in qs:
             rk = row['order__region_key']
-            b = regions.setdefault(rk, {
+            region = regions.setdefault(rk, {
                 'region_key': rk,
                 'state': row['order__state'],
                 'country': row['order__country'],
                 '_lat_sum': 0.0, '_lng_sum': 0.0, '_n': 0,
                 'total_purchases': 0,
-                'movie_counts': {}
+                'movie_counts': {}  # movie_id -> {name, image, count}
             })
-            b['_lat_sum'] += float(row['order__latitude'])
-            b['_lng_sum'] += float(row['order__longitude'])
-            b['_n'] += 1
 
+            # Add lat/lng for averaging region center
+            region['_lat_sum'] += float(row['order__latitude'])
+            region['_lng_sum'] += float(row['order__longitude'])
+            region['_n'] += 1
+
+            # Track movie sales count
             qty = int(row.get('quantity') or 0)
-            b['total_purchases'] += qty
-            name = row['movie__name']
-            b['movie_counts'][name] = b['movie_counts'].get(name, 0) + qty
+            region['total_purchases'] += qty
+            mid = row['movie__id']
+            mname = row['movie__name']
+            mimage_rel = row.get('movie__image')
+            mimage = None
+            if mimage_rel:
+                # Combine MEDIA_URL with relative path to get full URL
+                mimage = settings.MEDIA_URL.rstrip('/') + '/' + mimage_rel.lstrip('/')
 
+            movie_info = region['movie_counts'].setdefault(
+                mid, {'name': mname, 'image': mimage, 'count': 0}
+            )
+
+            movie_info['count'] += qty
+
+        # ---- 4. Build response payload ----
         payload = []
-        for rk, b in regions.items():
-            n = max(b['_n'], 1)
-            top = sorted(
-                [{'movie': m, 'count': c} for m, c in b['movie_counts'].items()],
-                key=lambda x: (-x['count'], x['movie'])
+        for region in regions.values():
+            n = max(region['_n'], 1)
+
+            # Sort top movies by sales count, limit to top 3
+            top_movies = sorted(
+                [
+                    {
+                        'id': mid,
+                        'name': info['name'],
+                        'image': info['image'],
+                        'count': info['count']
+                    }
+                    for mid, info in region['movie_counts'].items()
+                ],
+                key=lambda x: (-x['count'], x['name'])
             )[:3]
+
             payload.append({
-                'region_key': rk,
-                'state': b['state'],
-                'country': b['country'],
-                'lat': round(b['_lat_sum'] / n, 6),
-                'lng': round(b['_lng_sum'] / n, 6),
-                'total_purchases': b['total_purchases'],
-                'top': top
+                'region_key': region['region_key'],
+                'state': region['state'],
+                'country': region['country'],
+                'lat': round(region['_lat_sum'] / n, 6),
+                'lng': round(region['_lng_sum'] / n, 6),
+                'total_purchases': region['total_purchases'],
+                'top': top_movies,
             })
 
+        # Sort regions by total purchases descending
         payload.sort(key=lambda r: (-r['total_purchases'], r['region_key']))
+
         return JsonResponse({'regions': payload})
+
     except Exception as e:
+        # Log error (optional: print or use logging)
+        print("Error in trending_data:", e)
         return JsonResponse({'regions': []})
+
