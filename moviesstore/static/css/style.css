@@ -39,3 +39,20 @@
   width: fit-content;
   max-height: 400px;
 }
+
+  /* Make movie links modern and subtle */
+  .movie-link {
+    text-decoration: none;
+    color: #2472e6;
+    font-weight: 500;
+    transition: color 0.2s ease-in-out;
+  }
+
+  .movie-link:hover {
+    color: #003687; /* subtle blue hover */
+  }
+
+  /* Thumbnail consistency */
+  #top-movies img, .info-window img {
+    border-radius: 6px;
+  }

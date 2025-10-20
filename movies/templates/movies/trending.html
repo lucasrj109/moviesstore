@@ -1,5 +1,7 @@
 {% extends "base.html" %}
+{% load static %}
 {% block content %}
+
 <div class="container py-3">
   <div class="row">
     <div class="col mx-auto mb-3">
@@ -41,7 +43,10 @@
   <div class="row mt-3">
     <div class="col-lg-6 mb-3">
       <div class="card shadow-sm">
-        <div class="card-header bg-light"><strong>Top Movies</strong> <small class="text-muted">click to show pins</small></div>
+        <div class="card-header bg-light">
+          <strong>Top Movies</strong> 
+          <small class="text-muted">click to filter pins</small>
+        </div>
         <div class="card-body p-0">
           <ul id="top-movies" class="list-group list-group-flush"></ul>
         </div>
@@ -49,7 +54,10 @@
     </div>
     <div class="col-lg-6 mb-3">
       <div class="card shadow-sm">
-        <div class="card-header bg-light"><strong>Top Regions</strong> <small class="text-muted">click to focus/pin</small></div>
+        <div class="card-header bg-light">
+          <strong>Top Regions</strong> 
+          <small class="text-muted">click to focus map</small>
+        </div>
         <div class="card-body p-0">
           <ul id="top-regions" class="list-group list-group-flush"></ul>
         </div>
@@ -59,18 +67,26 @@
 
   <div class="mt-1">
     <small class="text-muted">
-        Note: Location data is based on billing locations provided during checkout.
+      Note: Location data is based on billing locations provided during checkout.
     </small>
   </div>
 </div>
 
+<!-- ====================== SCRIPT ====================== -->
 <script>
 let map, info;
-let markers = [];          // [{marker, data}]
-let regionsData = [];      // api data
-let movieTotals = {};      // movie -> {count, markers: [marker]}
+let markers = [];
+let regionsData = [];
+let movieTotals = {};
 let statesLayerLoaded = false;
 
+/* Build movie detail URLs dynamically without hardcoding paths */
+const MOVIE_SHOW_SAMPLE = "{% url 'movies.show' 1 %}";
+function movieDetailUrl(id) {
+  return MOVIE_SHOW_SAMPLE.replace(/1\/?$/, String(id) + "/");
+}
+
+/* Initialize the Google Map and setup autocomplete, filters, and event listeners */
 function initMap() {
   map = new google.maps.Map(document.getElementById("map"), {
     center: { lat: 39.5, lng: -98.35 },
@@ -96,6 +112,7 @@ function initMap() {
   fetchAndRender();
 }
 
+/* Setup Google Places autocomplete for the search box */
 function setupAutocomplete() {
   const input = document.getElementById('place-input');
   const autocomplete = new google.maps.places.Autocomplete(input, {
@@ -111,15 +128,18 @@ function setupAutocomplete() {
     const state = getAC(ac, "administrative_area_level_1");
     const country = getAC(ac, "country");
     filterMarkersByRegion({ state, country });
-    if (state && statesLayerLoaded) highlightStatePolygon(state); else clearStateHighlight();
+    if (state && statesLayerLoaded) highlightStatePolygon(state);
+    else clearStateHighlight();
   });
 }
 
+/* Listen for changes to the time window dropdown */
 function setupWindowSelect() {
   const sel = document.getElementById('window-select');
   sel.addEventListener('change', fetchAndRender);
 }
 
+/* Fetch JSON data for trending movies */
 function fetchAndRender() {
   const sel = document.getElementById('window-select');
   const windowParam = sel ? sel.value : '30d';
@@ -134,12 +154,11 @@ function fetchAndRender() {
     .catch(err => console.error("Trending data error:", err));
 }
 
+/* Create Google Map markers for each region and populate InfoWindows */
 function renderMarkers() {
-  // Clear
   markers.forEach(obj => obj.marker.setMap(null));
   markers = [];
   movieTotals = {};
-
   const bounds = new google.maps.LatLngBounds();
 
   regionsData.forEach(r => {
@@ -150,29 +169,41 @@ function renderMarkers() {
       map,
       title: r.region_key || [r.state, r.country].filter(Boolean).join(', '),
     });
+
     const html = `
       <div style="min-width:260px">
         <div><strong>${escapeHtml(marker.title)}</strong></div>
         <div class="mt-2"><em>Top titles (by purchases):</em></div>
-        <ol class="mb-0">
-          ${(r.top || []).map(e => `<li>${escapeHtml(e.movie)} — <b>${e.count}</b></li>`).join('')}
+        <ol class="mb-0 list-unstyled">
+          ${(r.top || []).map(e => `
+            <li class="d-flex align-items-center mb-2">
+              <img src="${escapeHtml(e.image || '/static/images/default_movie.jpg')}"
+                   alt="${escapeHtml(e.name)}"
+                   class="rounded me-2"
+                   style="width:32px;height:48px;object-fit:cover;">
+              <a href="${movieDetailUrl(e.id)}" class="movie-link">
+                ${escapeHtml(e.name)}
+              </a>
+              <span class="ms-auto text-muted"><b>${e.count}</b></span>
+            </li>`).join('')}
         </ol>
         <div class="mt-1 text-muted">Total purchases: ${r.total_purchases || 0}</div>
       </div>
     `;
+
     marker.addListener('click', () => {
       info.setContent(html);
       info.open(map, marker);
-      if (r.state && statesLayerLoaded) highlightStatePolygon(r.state); else clearStateHighlight();
+      if (r.state && statesLayerLoaded) highlightStatePolygon(r.state);
+      else clearStateHighlight();
     });
 
     markers.push({ marker, data: r, html });
     bounds.extend(pos);
 
-    // Accumulate per-movie totals and which markers show them
     (r.top || []).forEach(e => {
-      const key = e.movie;
-      if (!movieTotals[key]) movieTotals[key] = { count: 0, markers: [] };
+      const key = String(e.id);
+      if (!movieTotals[key]) movieTotals[key] = { name: e.name, image: e.image, count: 0, markers: [] };
       movieTotals[key].count += (e.count || 0);
       movieTotals[key].markers.push(marker);
     });
@@ -186,8 +217,8 @@ function renderMarkers() {
   }
 }
 
+/* Build bottom "Top Movies" and "Top Regions" lists */
 function buildBottomPanels() {
-  // Top Movies
   const tm = document.getElementById('top-movies');
   tm.innerHTML = '';
   const moviesSorted = Object.entries(movieTotals)
@@ -197,16 +228,27 @@ function buildBottomPanels() {
   if (moviesSorted.length === 0) {
     tm.innerHTML = `<li class="list-group-item text-muted">No purchases in this window.</li>`;
   } else {
-    moviesSorted.forEach(([name, obj]) => {
+    moviesSorted.forEach(([id, obj]) => {
       const li = document.createElement('li');
-      li.className = 'list-group-item d-flex justify-content-between align-items-center';
-      li.innerHTML = `<span>${escapeHtml(name)}</span><span class="badge bg-dark">${obj.count}</span>`;
-      li.addEventListener('click', () => filterMarkersByMovie(name));
+      li.className = 'list-group-item d-flex align-items-center justify-content-between';
+      const imageUrl = escapeHtml(obj.image || '/static/images/default_movie.jpg');
+      const titleHtml = `
+        <div class="d-flex align-items-center">
+          <img src="${imageUrl}" alt="${escapeHtml(obj.name)}"
+               class="rounded me-2"
+               style="width:40px;height:60px;object-fit:cover;">
+          <a href="${movieDetailUrl(id)}" class="movie-link">${escapeHtml(obj.name)}</a>
+        </div>
+      `;
+      li.innerHTML = `${titleHtml}<span class="badge bg-dark">${obj.count}</span>`;
+      li.addEventListener('click', (ev) => {
+        if (ev.target.closest('a')) return;
+        filterMarkersByMovieId(id);
+      });
       tm.appendChild(li);
     });
   }
 
-  // Top Regions
   const tr = document.getElementById('top-regions');
   tr.innerHTML = '';
   const topRegions = regionsData.slice(0, 15);
@@ -224,8 +266,23 @@ function buildBottomPanels() {
   }
 }
 
+function filterMarkersByMovieId(movieId) {
+  let any = false;
+  const bounds = new google.maps.LatLngBounds();
+  markers.forEach(obj => {
+    const inTop = (obj.data.top || []).some(e => String(e.id) === String(movieId));
+    obj.marker.setVisible(inTop);
+    if (inTop) { bounds.extend(obj.marker.getPosition()); any = true; }
+  });
+  if (any) {
+    map.fitBounds(bounds);
+    google.maps.event.addListenerOnce(map, 'bounds_changed', () => {
+      if (map.getZoom() > 8) map.setZoom(8);
+    });
+  }
+}
+
 function focusRegion(title) {
-  // Find marker by title
   const obj = markers.find(m => m.marker.getTitle() === title);
   if (!obj) return;
   markers.forEach(m => m.marker.setVisible(false));
@@ -235,26 +292,8 @@ function focusRegion(title) {
   info.setContent(obj.html);
   info.open(map, obj.marker);
   const st = obj.data.state;
-  if (st && statesLayerLoaded) highlightStatePolygon(st); else clearStateHighlight();
-}
-
-function filterMarkersByMovie(movieName) {
-  let any = false;
-  const want = (movieName || '').toLowerCase();
-  const bounds = new google.maps.LatLngBounds();
-
-  markers.forEach(obj => {
-    const inTop = (obj.data.top || []).some(e => (e.movie || '').toLowerCase() === want);
-    obj.marker.setVisible(inTop);
-    if (inTop) { bounds.extend(obj.marker.getPosition()); any = true; }
-  });
-
-  if (any) {
-    map.fitBounds(bounds);
-    google.maps.event.addListenerOnce(map, 'bounds_changed', () => {
-      if (map.getZoom() > 8) map.setZoom(8);
-    });
-  }
+  if (st && statesLayerLoaded) highlightStatePolygon(st);
+  else clearStateHighlight();
 }
 
 function filterMarkersByRegion({ state, country }) {
@@ -296,7 +335,7 @@ function resetView() {
   }
 }
 
-/* -------- Boundaries (GeoJSON) -------- */
+/* ---- GeoJSON Boundary Layer ---- */
 function loadStatesGeoJson() {
   fetch("/static/geo/us_states.geojson", { cache: "no-cache" })
     .then(res => { if (!res.ok) throw new Error(); return res.json(); })
@@ -323,16 +362,18 @@ function highlightStatePolygon(stateName) {
 }
 function clearStateHighlight() { if (statesLayerLoaded) map.data.revertStyle(); }
 
-/* -------------- Utils -------------- */
+/* ---- Utils ---- */
 function getAC(components, type) {
   const hit = components.find(c => (c.types || []).includes(type));
   return hit ? hit.long_name : null;
 }
 function escapeHtml(s) {
-  return String(s || '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[ch]));
+  return String(s || '').replace(/[&<>"']/g, ch => ({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'
+  }[ch]));
 }
 </script>
 
-<!-- Load Maps with Places library for Autocomplete -->
+<!-- Google Maps Script -->
 <script async defer src="https://maps.googleapis.com/maps/api/js?key={{ MAPS_API_KEY }}&libraries=places&callback=initMap"></script>
 {% endblock %}
